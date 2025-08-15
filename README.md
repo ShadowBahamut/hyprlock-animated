@@ -7,6 +7,7 @@ Hyprland's simple, yet multi-threaded and GPU-accelerated screen locking utility
  - Fully GPU accelerated
  - Multi-threaded resource acquisition
  - Blurred screenshot as the background
+ - **Animated video backgrounds** with GPU-accelerated decoding (VAAPI, NVDEC, CUDA)
  - Native fingerprint support (using libfprint's dbus interface)
  - Some of Hyprland's eyecandy: gradient borders, blur, animations, shadows, etc.
  - and more...
@@ -43,6 +44,7 @@ You need the following dependencies
 - wayland-client
 - wayland-protocols
 - xkbcommon
+- ffmpeg (libavcodec, libavformat, libavutil, libswscale, libavfilter) - for video backgrounds
 
 Sometimes distro packages are missing required development files.
 Such distros usually offer development versions of library package - commonly suffixed with `-devel` or `-dev`.

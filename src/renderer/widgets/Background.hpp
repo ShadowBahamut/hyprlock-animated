@@ -7,6 +7,7 @@
 #include "../../core/Timer.hpp"
 #include "../Framebuffer.hpp"
 #include "../AsyncResourceGatherer.hpp"
+#include "../VideoDecoder.hpp"
 #include <cstdint>
 #include <hyprutils/math/Misc.hpp>
 #include <string>
@@ -14,9 +15,11 @@
 #include <any>
 #include <chrono>
 #include <filesystem>
+#include <hyprutils/memory/UniquePtr.hpp>
 
 struct SPreloadedAsset;
 class COutput;
+class CVideoDecoder;
 
 class CBackground : public IWidget {
   public:
@@ -84,4 +87,9 @@ class CBackground : public IWidget {
     CAsyncResourceGatherer::SPreloadRequest request;
     ASP<CTimer>                             reloadTimer;
     std::filesystem::file_time_type         modificationTime;
+    
+    // Video support
+    UP<CVideoDecoder>                       m_pVideoDecoder;
+    bool                                    isVideo = false;
+    ASP<CTimer>                             videoFrameTimer;
 };

@@ -7,11 +7,13 @@
 #include "../../helpers/MiscFunctions.hpp"
 #include "../../core/AnimationManager.hpp"
 #include "../../config/ConfigManager.hpp"
+#include "../VideoDecoder.hpp"
 #include <chrono>
 #include <hyprlang.hpp>
 #include <filesystem>
 #include <memory>
 #include <GLES3/gl32.h>
+#include <algorithm>
 
 CBackground::CBackground() {
     blurredFB        = makeUnique<CFramebuffer>();
@@ -50,6 +52,19 @@ void CBackground::configure(const std::unordered_map<std::string, std::any>& pro
     }
 
     isScreenshot = path == "screenshot";
+    
+    // Check if path is a video file
+    const std::vector<std::string> videoExtensions = {".mp4", ".avi", ".mkv", ".webm", ".mov", ".wmv", ".flv", ".m4v", ".mpg", ".mpeg"};
+    if (!path.empty() && path != "screenshot") {
+        std::string lowerPath = path;
+        std::transform(lowerPath.begin(), lowerPath.end(), lowerPath.begin(), ::tolower);
+        for (const auto& ext : videoExtensions) {
+            if (lowerPath.ends_with(ext)) {
+                isVideo = true;
+                break;
+            }
+        }
+    }
 
     viewport     = pOutput->getViewport();
     outputPort   = pOutput->stringPort;
@@ -72,15 +87,38 @@ void CBackground::configure(const std::unordered_map<std::string, std::any>& pro
             Debug::log(ERR, "No screencopy support! path=screenshot won't work. Falling back to background color.");
             resourceID = "";
         }
+    } else if (isVideo && !path.empty()) {
+        // Initialize video decoder for video files
+        Debug::log(LOG, "Background: Initializing video decoder for: {}", path);
+        m_pVideoDecoder = makeUnique<CVideoDecoder>();
+        std::string fullPath = absolutePath(path, "");
+        if (m_pVideoDecoder->load(fullPath)) {
+            m_pVideoDecoder->setLoop(true);
+            m_pVideoDecoder->start();
+            
+            Debug::log(LOG, "Background: Video decoder started, setting up frame timer");
+            
+            // Set up video frame update timer (60 FPS)
+            videoFrameTimer = g_pHyprlock->addTimer(std::chrono::milliseconds(16), 
+                [this](auto, auto) {
+                    if (m_pVideoDecoder && m_pVideoDecoder->isPlaying()) {
+                        g_pHyprlock->renderOutput(outputPort);
+                    }
+                }, nullptr, true); // Make it repeating
+        } else {
+            Debug::log(ERR, "Background: Failed to load video file: {}", fullPath);
+            m_pVideoDecoder.reset();
+            isVideo = false;
+        }
     } else if (!path.empty())
         resourceID = "background:" + path;
 
-    if (!isScreenshot && reloadTime > -1) {
+    if (!isScreenshot && !isVideo && reloadTime > -1) {
         try {
             modificationTime = std::filesystem::last_write_time(absolutePath(path, ""));
         } catch (std::exception& e) { Debug::log(ERR, "{}", e.what()); }
 
-        plantReloadTimer(); // No reloads for screenshots.
+        plantReloadTimer(); // No reloads for screenshots or videos.
     }
 }
 
@@ -88,6 +126,16 @@ void CBackground::reset() {
     if (reloadTimer) {
         reloadTimer->cancel();
         reloadTimer.reset();
+    }
+    
+    if (videoFrameTimer) {
+        videoFrameTimer->cancel();
+        videoFrameTimer.reset();
+    }
+    
+    if (m_pVideoDecoder) {
+        m_pVideoDecoder->stop();
+        m_pVideoDecoder.reset();
     }
 
     blurredFB->destroyBuffer();
@@ -215,6 +263,33 @@ void CBackground::renderToFB(const CTexture& tex, CFramebuffer& fb, int passes, 
 }
 
 bool CBackground::draw(const SRenderData& data) {
+    // Handle video backgrounds
+    if (isVideo && m_pVideoDecoder) {
+        CTexture* videoFrame = m_pVideoDecoder->getCurrentFrame();
+        if (videoFrame) {
+            Debug::log(TRACE, "Background: Rendering video frame, size: {}x{}", 
+                       videoFrame->m_vSize.x, videoFrame->m_vSize.y);
+            
+            const auto TEXBOX = getScaledBoxForTextureSize(videoFrame->m_vSize, viewport);
+            
+            // Apply blur if needed
+            if (blurPasses > 0) {
+                renderToFB(*videoFrame, *blurredFB, blurPasses);
+                const auto& TEX = blurredFB->m_cTex;
+                g_pRenderer->renderTexture(TEXBOX, TEX, 1, 0, HYPRUTILS_TRANSFORM_FLIPPED_180);
+            } else {
+                g_pRenderer->renderTexture(TEXBOX, *videoFrame, 1, 0, HYPRUTILS_TRANSFORM_FLIPPED_180);
+            }
+            return true; // Always redraw for video
+        } else {
+            // Video not ready yet, show color
+            Debug::log(TRACE, "Background: Video frame not ready, showing color");
+            renderRect(color);
+            return true;
+        }
+    }
+    
+    // Original image/screenshot handling
     updatePrimaryAsset();
     updatePendingAsset();
     updateScAsset();

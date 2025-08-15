@@ -17,7 +17,13 @@ void CTexture::destroyTexture() {
 }
 
 void CTexture::allocate() {
-    if (!m_bAllocated)
+    if (!m_bAllocated) {
         glGenTextures(1, &m_iTexID);
-    m_bAllocated = true;
+        // Verify texture was generated successfully
+        if (m_iTexID == 0) {
+            // Try again in case of transient failure
+            glGenTextures(1, &m_iTexID);
+        }
+        m_bAllocated = (m_iTexID != 0);
+    }
 }
